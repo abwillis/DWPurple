@@ -189,6 +189,10 @@ void dwp_account_combo_free(DwpAccountCombo *ac);
 HWND dwp_group_combo_new(const char *initial);
 PurpleGroup *dwp_group_find_or_create(const char *name);
 
+/* Image on the clipboard (clipimg.c): newly allocated bytes and a file
+ * name; FALSE if none.  prefer_text: FALSE when ordinary text is there. */
+gboolean dwp_clipboard_get_image(gboolean prefer_text, guchar **data, gsize *len, char **name);
+
 /* GDK 3 lock watchdog; call before dw_init() (gdklock.c). */
 void dwp_gdk_lock_install(void);
 /* Hold the GDK thread lock around Dynamic Windows timer callbacks (GTK 3

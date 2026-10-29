@@ -56,6 +56,7 @@ static PurpleCmdId cmd_ids[4];
 static void view_update_tab(ConvView *v);
 static void view_render_line(ConvView *v, Line *line, gboolean live);
 static void window_update_title(void);
+static gboolean paste_image(ConvView *v, gboolean prefer_text);
 
 /* ================================================================ helpers */
 
@@ -921,6 +922,12 @@ static int DWSIGNAL input_key(HWND w, char ch, int vk, int state, void *data, ch
     if(!view_alive(v))
         return FALSE;
     dwp_note_activity();
+    /* Ctrl+V / Shift+Insert: an image on the clipboard is sent; text
+     * (including text that comes with a picture) pastes normally. */
+    if((((state & KC_CTRL) && !(state & KC_ALT) && (ch == 0x16 || vk == 'v' || vk == 'V')) ||
+        ((state & KC_SHIFT) && vk == VK_INSERT)) &&
+       paste_image(v, TRUE))
+        return TRUE;
     if(enter && !(state & KC_SHIFT))
     {
         view_send(v);
@@ -1167,14 +1174,113 @@ static void cm_send_file(gpointer a, gpointer b, const char *s)
     serv_send_file(gc, purple_conversation_get_name(v->conv), NULL);
 }
 
+/* Save pasted bytes for protocols that only take files; the transfer
+ * reads the file later, so it stays in <config>/pasted. */
+static char *save_pasted_image(const guchar *data, gsize len, const char *name)
+{
+    char *dir = g_build_filename(purple_user_dir(), "pasted", NULL);
+    const char *dot = name ? strrchr(name, '.') : NULL;
+    char stamp[32], *file, *path;
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
+
+    if(!tm || !strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", tm))
+        g_snprintf(stamp, sizeof(stamp), "%ld", (long)now);
+    file = g_strdup_printf("pasted-%s%s", stamp, dot ? dot : ".png");
+    path = g_build_filename(dir, file, NULL);
+    g_free(file);
+    if(g_mkdir_with_parents(dir, 0700) != 0 ||
+       !g_file_set_contents(path, (const char *)data, (gssize)len, NULL))
+    {
+        g_free(path);
+        path = NULL;
+    }
+    g_free(dir);
+    return path;
+}
+
+/* Send image bytes inline, or as a file where inline images are not
+ * supported.  Takes ownership of data. */
+static void send_image_data(PurpleConversation *conv, guchar *data, gsize len, const char *name)
+{
+    ConvView *v = view_from_conv(conv);
+    PurpleConnection *gc = purple_conversation_get_gc(conv);
+    char *html;
+    int id;
+
+    if(!v || !gc)
+    {
+        if(v)
+            system_message(v, "Image not sent: you are not connected.", TRUE);
+        g_free(data);
+        return;
+    }
+    if(!(gc->flags & PURPLE_CONNECTION_HTML) || (gc->flags & PURPLE_CONNECTION_NO_IMAGES))
+    {
+        PurplePluginProtocolInfo *info = dwp_prpl_info(gc);
+
+        if(!view_is_chat(v) && info && info->send_file)
+        {
+            char *path = save_pasted_image(data, len, name);
+
+            if(path)
+                serv_send_file(gc, purple_conversation_get_name(conv), path);
+            else
+                system_message(v, "The image could not be saved for sending.", TRUE);
+            g_free(path);
+        }
+        else
+            system_message(v, "Images cannot be sent in this conversation.", TRUE);
+        g_free(data);
+        return;
+    }
+    id = purple_imgstore_add_with_id(data, len, name);    /* takes data */
+    if(!id)
+        return;
+    html = g_strdup_printf("<img id=\"%d\">", id);
+    if(view_is_chat(v))
+        purple_conv_chat_send(PURPLE_CONV_CHAT(conv), html);
+    else
+        purple_conv_im_send(PURPLE_CONV_IM(conv), html);
+    purple_imgstore_unref_by_id(id);
+    g_free(html);
+}
+
+/* Send the clipboard image, if any.  TRUE when the clipboard held one. */
+static gboolean paste_image(ConvView *v, gboolean prefer_text)
+{
+    PurpleConversation *conv = v->conv;
+    guchar *data = NULL;
+    gsize len = 0;
+    char *name = NULL;
+
+    if(!dwp_clipboard_get_image(prefer_text, &data, &len, &name))
+        return FALSE;
+    /* Reading the clipboard can run a nested main loop: re-check. */
+    if(dwp_conversation_exists(conv) && view_from_conv(conv))
+        send_image_data(conv, data, len, name);
+    else
+        g_free(data);
+    g_free(name);
+    return TRUE;
+}
+
+static void cm_paste_image(gpointer a, gpointer b, const char *s)
+{
+    ConvView *v = menu_view();
+
+    (void)a; (void)b; (void)s;
+    if(v && !paste_image(v, FALSE))
+        system_message(v, "The clipboard does not contain an image.", TRUE);
+}
+
 static void cm_send_image(gpointer a, gpointer b, const char *s)
 {
     ConvView *v = menu_view();
     PurpleConversation *conv;
     PurpleConnection *gc;
-    char *path, *data = NULL, *name, *html;
+    char *path, *data = NULL, *name;
     gsize len = 0;
-    int id;
 
     (void)a; (void)b; (void)s;
     if(!v)
@@ -1209,17 +1315,8 @@ static void cm_send_image(gpointer a, gpointer b, const char *s)
     }
     name = g_path_get_basename(path);
     dw_free(path);
-    id = purple_imgstore_add_with_id(data, len, name);    /* takes data */
+    send_image_data(conv, (guchar *)data, len, name);
     g_free(name);
-    if(!id)
-        return;
-    html = g_strdup_printf("<img id=\"%d\">", id);
-    if(view_is_chat(v))
-        purple_conv_chat_send(PURPLE_CONV_CHAT(conv), html);
-    else
-        purple_conv_im_send(PURPLE_CONV_IM(conv), html);
-    purple_imgstore_unref_by_id(id);
-    g_free(html);
 }
 
 static void insert_emoji(gpointer conv, gpointer b, const char *code)
@@ -1422,6 +1519,7 @@ static void ensure_window(void)
     menu = dw_menu_new(0);
     dwp_menu_add_static(menu, "Send ~File...", 0, FALSE, cm_send_file, NULL);
     dwp_menu_add_static(menu, "Send I~mage...", 0, FALSE, cm_send_image, NULL);
+    dwp_menu_add_static(menu, "~Paste Image", 0, FALSE, cm_paste_image, NULL);
     dwp_menu_add_static(menu, "Insert ~Emoji...", 0, FALSE, cm_emoji, NULL);
     dwp_menu_separator(menu);
     dwp_menu_add_static(menu, "Get ~Info", 0, FALSE, cm_get_info, NULL);

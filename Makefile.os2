@@ -18,7 +18,7 @@ PURPLE_LIBS   ?= $(shell $(PKG_CONFIG) --libs purple glib-2.0 gobject-2.0 gmodul
 
 SRCS = main.c core.c eventloop.c util.c blist.c accounts.c conv.c emoji.c \
        request.c notify.c xfer.c plugins.c debugwin.c sound.c idle.c \
-       pounces.c prefs.c roomlist.c privacy.c tray.c gdklock.c ircconsole.c
+       pounces.c prefs.c roomlist.c privacy.c tray.c gdklock.c ircconsole.c clipimg.c
 OBJS = $(addprefix build/,$(SRCS:.c=.o))
 
 ALL_CFLAGS = -Zomf -Zmt -std=gnu99 -Wall -Wno-unused-parameter -D__ST_MT_ERRNO__ \

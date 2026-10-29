@@ -12,7 +12,8 @@ for GTK 3 (Linux/BSD), OS/2 Presentation Manager, Windows and macOS.
   op/voice prefixes, nick Tab-completion, `/commands`, sent-message history (Ctrl+Up/Down)
 - Reaction notices ("Reacted with :x:") can be hidden; `:emoji_codes:` conversion,
   both per conversation (Options menu) with global defaults
-- Emoji picker, send image (inline when the protocol supports it, otherwise as a file)
+- Emoji picker, send or paste an image (Ctrl+V, Shift+Insert or Conversation > Paste Image;
+  inline when the protocol supports it, otherwise as a file)
 - Account manager and editor (user splits, protocol options, registration)
 - Join/add chat dialogs built from each protocol's chat fields
 - Room list browser with filter, category expansion, join and add
