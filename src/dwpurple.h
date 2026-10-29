@@ -49,6 +49,7 @@
 #define DWP_PREF_EMOJI_CODES    "/dwpurple/conversations/emoji_codes"
 #define DWP_PREF_NOTIFY_MSGS    "/dwpurple/conversations/system_notifications"
 #define DWP_PREF_RAISE_NEW      "/dwpurple/conversations/raise_new"
+#define DWP_PREF_HISTORY_DISPLAY "/dwpurple/conversations/history_display"
 #define DWP_PREF_SOUND          "/dwpurple/sound"
 #define DWP_PREF_SOUND_ENABLED  "/dwpurple/sound/enabled"
 #define DWP_PREF_SOUND_FILE     "/dwpurple/sound/file"
@@ -188,6 +189,19 @@ void dwp_account_combo_free(DwpAccountCombo *ac);
 /* Group combo (editable, lists all groups). */
 HWND dwp_group_combo_new(const char *initial);
 PurpleGroup *dwp_group_find_or_create(const char *name);
+
+/* Rich conversation history on a render widget (histview.c). */
+enum { DWP_HIST_NORMAL = 0, DWP_HIST_SYSTEM, DWP_HIST_ERROR };
+typedef struct _DwpHistView DwpHistView;
+DwpHistView *dwp_histview_new(void);
+/* The box to pack: render widget plus vertical scroll bar. */
+HWND dwp_histview_widget(DwpHistView *hv);
+/* prefix is plain text, html is message markup; style is DWP_HIST_*. */
+void dwp_histview_append(DwpHistView *hv, const char *prefix, const char *html,
+                         gboolean emoji_codes, int style);
+void dwp_histview_clear(DwpHistView *hv);
+/* Releases the data; call after the widgets have been destroyed. */
+void dwp_histview_free(DwpHistView *hv);
 
 /* Image on the clipboard (clipimg.c): newly allocated bytes and a file
  * name; FALSE if none.  prefer_text: FALSE when ordinary text is there. */

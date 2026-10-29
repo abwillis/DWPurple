@@ -1,10 +1,11 @@
 /*
  * DWPurple - tabbed conversation window and conversation UI ops.
  *
- * History is a read-only MLE: Dynamic Windows has no rich text widget on
- * every platform (no HTML widget on OS/2), so messages are converted from
- * HTML to text.  The MLE insertion point is tracked explicitly because
- * dw_mle_import(-1) inserts at the start on OS/2.
+ * History is shown in a read-only MLE (messages converted from HTML to
+ * text) or, when Preferences > Conversations > History display is "Rich",
+ * in the render widget view of histview.c (text and inline images).  The
+ * choice is made when a tab opens.  The MLE insertion point is tracked
+ * explicitly because dw_mle_import(-1) inserts at the start on OS/2.
  */
 #include "dwpurple.h"
 
@@ -32,6 +33,7 @@ typedef struct {
     HWND box, title, subtitle, history, users, user_count, typing, input;
     unsigned int pos;
     unsigned long chars;
+    DwpHistView *rich;          /* set: history is the rich view's box */
     GQueue lines;
     int activity;
     gboolean show_reactions, emoji_codes;
@@ -176,9 +178,14 @@ static void view_rerender(ConvView *v)
     GList *l;
     int skip;
 
-    dw_mle_clear(v->history);
-    v->pos = 0;
-    v->chars = 0;
+    if(v->rich)
+        dwp_histview_clear(v->rich);
+    else
+    {
+        dw_mle_clear(v->history);
+        v->pos = 0;
+        v->chars = 0;
+    }
     v->hidden_reactions = 0;
     skip = (int)g_queue_get_length(&v->lines) - RERENDER_LINES;
     for(l = v->lines.head; l; l = l->next)
@@ -187,7 +194,8 @@ static void view_rerender(ConvView *v)
             continue;
         view_render_line(v, l->data, FALSE);
     }
-    dw_mle_set_cursor(v->history, v->pos);
+    if(!v->rich)
+        dw_mle_set_cursor(v->history, v->pos);
 }
 
 static void view_set_activity(ConvView *v, int activity)
@@ -273,6 +281,43 @@ static void view_render_line(ConvView *v, Line *line, gboolean live)
             g_string_append(out, buf);
         }
     }
+    if(v->rich)
+    {
+        char *wrapped = NULL;
+        int style = DWP_HIST_NORMAL;
+
+        if((line->flags & (PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_ERROR | PURPLE_MESSAGE_NOTIFY)) ||
+           !line->name || !*line->name)
+        {
+            if(line->flags & PURPLE_MESSAGE_ERROR)
+            {
+                g_string_append(out, "!! ");
+                style = DWP_HIST_ERROR;
+            }
+            else if(line->flags & (PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NOTIFY))
+                style = DWP_HIST_SYSTEM;
+        }
+        else
+        {
+            const char *auto_resp = (line->flags & PURPLE_MESSAGE_AUTO_RESP) ? " <AUTO-REPLY>" : "";
+
+            if(line->flags & PURPLE_MESSAGE_NICK)
+                g_string_append(out, ">> ");
+            if(line->me)
+                g_string_append_printf(out, "***%s%s ", line->name, auto_resp);
+            else
+                g_string_append_printf(out, "%s%s: ", line->name, auto_resp);
+            if(line->reaction)
+                wrapped = g_strdup_printf("[%s]", line->text);
+        }
+        /* Images stay as <img> markup; the rich view draws them. */
+        dwp_histview_append(v->rich, out->str, wrapped ? wrapped : line->text, v->emoji_codes, style);
+        g_free(wrapped);
+        g_string_free(out, TRUE);
+        if(!live)
+            return;
+        goto activity;
+    }
     text = dwp_html_to_text(line->text, v->emoji_codes);
     if((line->flags & (PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_ERROR | PURPLE_MESSAGE_NOTIFY)) ||
        !line->name || !*line->name)
@@ -315,6 +360,7 @@ static void view_render_line(ConvView *v, Line *line, gboolean live)
     else
         dw_mle_set_cursor(v->history, v->pos);
 
+activity:
     if(!view_visible(v))
     {
         int a = ACT_NONE;
@@ -1001,9 +1047,18 @@ static ConvView *view_new(PurpleConversation *conv)
     dw_box_pack_start(vbox, v->subtitle, DW_SIZE_AUTO, DW_SIZE_AUTO, TRUE, FALSE, 1);
     dwp_button(header, "Close", DW_SIGNAL_FUNC(close_clicked), v);
 
-    v->history = dw_mle_new(0);
-    dw_mle_set_editable(v->history, FALSE);
-    dw_mle_set_word_wrap(v->history, TRUE);
+    if(purple_strequal(purple_prefs_get_string(DWP_PREF_HISTORY_DISPLAY), "rich"))
+    {
+        /* v->history is then the rich view's box; it is only packed. */
+        v->rich = dwp_histview_new();
+        v->history = dwp_histview_widget(v->rich);
+    }
+    else
+    {
+        v->history = dw_mle_new(0);
+        dw_mle_set_editable(v->history, FALSE);
+        dw_mle_set_word_wrap(v->history, TRUE);
+    }
 
     if(purple_conversation_get_type(conv) == PURPLE_CONV_TYPE_CHAT)
     {
@@ -1049,6 +1104,7 @@ static ConvView *view_new(PurpleConversation *conv)
 static void view_free(ConvView *v)
 {
     clear_lines(v);
+    dwp_histview_free(v->rich);
     if(v->sent)
         g_ptr_array_free(v->sent, TRUE);
     g_free(v);

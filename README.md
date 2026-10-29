@@ -82,8 +82,9 @@ Pidgin's accounts, run `dwpurple -c ~/.purple` while Pidgin is closed.
 
 ## Limitations
 
-- Message history is plain text. Dynamic Windows has no rich-text widget on every
-  platform, so formatting is removed and images appear as `[image]`.
+- Message history is plain text by default (an MLE; formatting is removed and images
+  appear as `[image: name]`). Preferences > Conversations > History display > Rich uses
+  a render widget view instead, with inline images, on every platform including OS/2.
 - No voice/video. libpurple media requires GStreamer and a UI that Dynamic Windows does not provide.
 - Buddy icons are not shown.
 

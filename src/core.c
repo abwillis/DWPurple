@@ -138,6 +138,7 @@ static void ui_prefs_init(void)
     purple_prefs_add_bool(DWP_PREF_TIMESTAMPS, TRUE);
     purple_prefs_add_bool(DWP_PREF_NOTIFY_MSGS, FALSE);
     purple_prefs_add_bool(DWP_PREF_RAISE_NEW, TRUE);
+    purple_prefs_add_string(DWP_PREF_HISTORY_DISPLAY, "text");
     purple_prefs_add_none(DWP_PREF_TRAY);
     purple_prefs_add_bool(DWP_PREF_TRAY_ENABLED, TRUE);
     dwp_sound_add_prefs();

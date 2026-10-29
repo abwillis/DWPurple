@@ -48,7 +48,7 @@ endif
 
 SRCS := main.c core.c eventloop.c util.c blist.c accounts.c conv.c emoji.c \
         request.c notify.c xfer.c plugins.c debugwin.c sound.c idle.c \
-        pounces.c prefs.c roomlist.c privacy.c tray.c gdklock.c ircconsole.c clipimg.c
+        pounces.c prefs.c roomlist.c privacy.c tray.c gdklock.c ircconsole.c clipimg.c histview.c
 OBJS := $(addprefix build/,$(SRCS:.c=.o))
 TARGET := dwpurple$(EXE)
 

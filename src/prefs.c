@@ -14,7 +14,7 @@ typedef struct {
     /* interface */
     HWND show_offline, show_empty, tray, raise_new, notify_msgs;
     /* conversations */
-    HWND timestamps, reactions, emoji, send_typing, emoji_file;
+    HWND timestamps, reactions, emoji, send_typing, emoji_file, history_display;
     /* sounds */
     HWND sound_method, sound_command, sound_mute, sound_focus, sound_while;
     SoundRow *sounds;
@@ -38,6 +38,8 @@ static char *reply_labels[] = { "Never", "When away", "When both away and idle" 
 static const char *const reply_values[] = { "never", "away", "awayidle" };
 static char *proxy_labels[] = { "No proxy", "Use environment settings", "HTTP", "SOCKS 4", "SOCKS 5", "Tor/Privacy (SOCKS5)" };
 static const char *const proxy_values[] = { "none", "envvar", "http", "socks4", "socks5", "tor" };
+static char *history_labels[] = { "Text (native text box)", "Rich (render widget, inline images)" };
+static const char *const history_values[] = { "text", "rich" };
 
 #define COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
 
@@ -205,6 +207,8 @@ static int DWSIGNAL prefs_save(HWND w, void *data)
     purple_prefs_set_bool(DWP_PREF_SHOW_REACTIONS, dw_checkbox_get(d->reactions) ? TRUE : FALSE);
     purple_prefs_set_bool(DWP_PREF_EMOJI_CODES, dw_checkbox_get(d->emoji) ? TRUE : FALSE);
     purple_prefs_set_bool("/purple/conversations/im/send_typing", dw_checkbox_get(d->send_typing) ? TRUE : FALSE);
+    set_combo_string(d->history_display, history_labels, history_values, COUNT(history_labels),
+                     DWP_PREF_HISTORY_DISPLAY);
     /* Sounds */
     set_combo_string(d->sound_method, method_labels, method_values, COUNT(method_labels), DWP_PREF_SOUND_METHOD);
     s = dwp_get_text_trimmed(d->sound_command);
@@ -301,6 +305,11 @@ void dwp_prefs_show(void)
                       purple_prefs_get_bool(DWP_PREF_EMOJI_CODES));
     pd->send_typing = check(page, "Notify buddies that you are typing to them",
                             purple_prefs_get_bool("/purple/conversations/im/send_typing"));
+    pd->history_display = combo(page, "History display:", history_labels, COUNT(history_labels),
+                                string_index(history_values, COUNT(history_values),
+                                             purple_prefs_get_string(DWP_PREF_HISTORY_DISPLAY)));
+    dw_box_pack_start(page, dwp_label("History display applies to conversations opened after saving."),
+                      DW_SIZE_AUTO, DW_SIZE_AUTO, TRUE, FALSE, 2);
     {
         char *path = dwp_emoji_user_map_path();
         char *text = g_strdup_printf("Custom emoji codes: %s (one \"code = emoji\" per line)", path);
