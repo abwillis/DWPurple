@@ -263,7 +263,12 @@ static void line_add_text_link(HvLine *l, const char *text, int style, const cha
     g_free(fixed);
 }
 
-static void line_add_image(HvLine *l, HvImage *img, const char *url, int style)
+static void line_add_text(HvLine *l, const char *text, int style)
+{
+    line_add_text_link(l, text, style, NULL);
+}
+
+static void line_add_image(HvLine *l, HvImage *img, int style)
 {
     HvPiece pc;
 
@@ -930,6 +935,15 @@ static void menu_open_image(gpointer a, gpointer b, const char *s)
     image_open(hv->menu_img);
 }
 
+static void menu_open_link(gpointer a, gpointer b, const char *s)
+{
+    DwpHistView *hv = a;
+
+    (void)b; (void)s;
+    if(hv->menu_url)
+        dwp_open_link(hv->menu_url);
+}
+
 static int DWSIGNAL hv_button_press(HWND w, int x, int y, int button, void *data)
 {
     DwpHistView *hv = data;
@@ -1149,3 +1163,4 @@ void dwp_histview_free(DwpHistView *hv)
         dw_pixmap_destroy(hv->back);
     g_free(hv);
 }
+
