@@ -1,0 +1,29 @@
+--- a/src/conv.c
++++ b/src/conv.c
+@@ -238,22 +238,26 @@
+     out = g_string_new(NULL);
+     if(purple_prefs_get_bool(DWP_PREF_TIMESTAMPS))
+     {
+         struct tm *tm = localtime(&line->mtime);
+         time_t now = time(NULL);
+-        struct tm today = *localtime(&now);
++        struct tm *tdp;
++        struct tm msg, today;
+         char buf[64];
+ 
+-        if(tm)
++        /* localtime() returns one static buffer: copy before the second call. */
++        if(tm && (msg = *tm, (tdp = localtime(&now)) != NULL))
+         {
+-            gboolean date = (line->flags & PURPLE_MESSAGE_DELAYED) ||
+-                            tm->tm_yday != today.tm_yday || tm->tm_year != today.tm_year;
++            gboolean date;
+ 
+-            strftime(buf, sizeof(buf), date ? "(%Y-%m-%d %H:%M:%S) " : "(%H:%M:%S) ", tm);
++            today = *tdp;
++            date = (line->flags & PURPLE_MESSAGE_DELAYED) ||
++                   msg.tm_yday != today.tm_yday || msg.tm_year != today.tm_year;
++            strftime(buf, sizeof(buf), date ? "(%Y-%m-%d %H:%M:%S) " : "(%H:%M:%S) ", &msg);
+             g_string_append(out, buf);
+         }
+     }

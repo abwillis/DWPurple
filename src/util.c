@@ -826,11 +826,7 @@ void dwp_message(const char *title, const char *primary, const char *secondary)
     box = dw_box_new(DW_VERT, 4);
     dw_box_pack_start(m->window, box, 0, 0, TRUE, TRUE, 0);
     if(primary && *primary)
-    {
-        HWND text = dw_text_new(primary, 0);
-        dw_window_set_style(text, DW_DT_WORDBREAK, DW_DT_WORDBREAK);
-        dw_box_pack_start(box, text, 380, 40, TRUE, FALSE, 4);
-    }
+        dwp_text_block(box, primary, 380, 120);
     if(secondary && *secondary)
         dwp_text_block(box, secondary, 380, 200);
     buttons = dw_box_new(DW_HORZ, 0);

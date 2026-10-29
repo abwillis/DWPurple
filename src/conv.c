@@ -257,15 +257,18 @@ static void view_render_line(ConvView *v, Line *line, gboolean live)
     {
         struct tm *tm = localtime(&line->mtime);
         time_t now = time(NULL);
-        struct tm today = *localtime(&now);
+        struct tm *tdp;
+        struct tm msg, today;
         char buf[64];
 
-        if(tm)
+        /* localtime() returns one static buffer: copy before the second call. */
+        if(tm && (msg = *tm, (tdp = localtime(&now)) != NULL))
         {
-            gboolean date = (line->flags & PURPLE_MESSAGE_DELAYED) ||
-                            tm->tm_yday != today.tm_yday || tm->tm_year != today.tm_year;
-
-            strftime(buf, sizeof(buf), date ? "(%Y-%m-%d %H:%M:%S) " : "(%H:%M:%S) ", tm);
+            gboolean date;
+            today = *tdp;
+            date = (line->flags & PURPLE_MESSAGE_DELAYED) ||
+                   msg.tm_yday != today.tm_yday || msg.tm_year != today.tm_year;
+            strftime(buf, sizeof(buf), date ? "(%Y-%m-%d %H:%M:%S) " : "(%H:%M:%S) ", &msg);
             g_string_append(out, buf);
         }
     }
