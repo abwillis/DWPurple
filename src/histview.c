@@ -29,6 +29,7 @@
 #define HV_MAX_LINES    2000
 #define HV_TRIM_LINES   200
 #define HV_SCROLL_W     16
+#define HV_REMOTE_MAX   (20 * 1024 * 1024)
 
 typedef struct {
     int id;
@@ -39,6 +40,9 @@ typedef struct {
     HPIXMAP pixmap;
     gboolean decode_failed;
     char *path;                 /* full image file, written on first open */
+    char *url;                  /* remote attachment URL, if any */
+    PurpleUtilFetchUrlData *fetch;
+    struct _DwpHistView *owner;
 } HvImage;
 
 typedef struct {
@@ -74,6 +78,7 @@ struct _DwpHistView {
     GPtrArray *lines;           /* HvLine */
     GArray *rows;               /* HvRow, in content order */
     GHashTable *images;         /* store id -> HvImage (holds one reference) */
+    GHashTable *remote_images;  /* URL -> HvImage (holds one reference) */
     HPIXMAP back;
     int width, height;          /* render widget size */
     int content_h, offset;
@@ -95,9 +100,12 @@ static void image_unref(gpointer p)
 
     if(!img || --img->refs > 0)
         return;
+    if(img->fetch)
+        purple_util_fetch_url_cancel(img->fetch);
     if(img->pixmap)
         dw_pixmap_destroy(img->pixmap);
     g_free(img->name);
+    g_free(img->url);
     g_free(img->data);
     g_free(img->path);
     g_free(img);
@@ -133,9 +141,99 @@ static HvImage *image_get(DwpHistView *hv, int id)
     return img;
 }
 
+static HPIXMAP image_pixmap(DwpHistView *hv, HvImage *img);
+static void relayout(DwpHistView *hv);
+
+/* Only treat links that are known image attachment forms as images.  Other
+ * http(s) links stay ordinary clickable links. */
+static gboolean remote_image_url(const char *url)
+{
+    char *lower;
+    gboolean ret;
+    const char *q;
+
+    if(!url || (g_ascii_strncasecmp(url, "http://", 7) && g_ascii_strncasecmp(url, "https://", 8)))
+        return FALSE;
+    lower = g_ascii_strdown(url, -1);
+    q = strchr(lower, '?');
+    if(q)
+        *((char *)q) = '\0';
+    ret = strstr(lower, "/views/imgpsh_fullsize") != NULL ||
+          g_str_has_suffix(lower, ".gif") || g_str_has_suffix(lower, ".png") ||
+          g_str_has_suffix(lower, ".jpg") || g_str_has_suffix(lower, ".jpeg") ||
+          g_str_has_suffix(lower, ".webp") || g_str_has_suffix(lower, ".bmp");
+    g_free(lower);
+    return ret;
+}
+
+static char *remote_image_name(const char *url)
+{
+    char *plain = g_strdup(url), *q = strchr(plain, '?'), *base;
+
+    if(q) *q = '\0';
+    base = g_path_get_basename(plain);
+    g_free(plain);
+    if(!base || !*base || purple_strequal(base, "imgpsh_fullsize"))
+    {
+        g_free(base);
+        return g_strdup("remote-image");
+    }
+    return base;
+}
+
+static void remote_image_done(PurpleUtilFetchUrlData *url_data, gpointer user_data,
+                              const gchar *url_text, gsize len, const gchar *error_message)
+{
+    HvImage *img = user_data;
+    DwpHistView *hv = img->owner;
+
+    if(img->fetch == url_data)
+        img->fetch = NULL;
+    if(!hv)
+        return;
+    if(!url_text || !len)
+    {
+        purple_debug_warning(DWP_UI_ID, "Could not fetch inline image %s: %s\n",
+                             img->url, error_message ? error_message : "empty response");
+        img->decode_failed = TRUE;
+    }
+    else
+    {
+        img->data = g_malloc(len);
+        memcpy(img->data, url_text, len);
+        img->len = len;
+        /* Decode now so an HTML/error response cannot reserve image space. */
+        if(!image_pixmap(hv, img))
+            purple_debug_warning(DWP_UI_ID, "Fetched URL is not a decodable image: %s\n", img->url);
+    }
+    relayout(hv);
+    dw_render_redraw(hv->render);
+}
+
+static HvImage *remote_image_get(DwpHistView *hv, const char *url)
+{
+    HvImage *img = g_hash_table_lookup(hv->remote_images, url);
+
+    if(img)
+        return img;
+    img = g_new0(HvImage, 1);
+    img->id = -1;
+    img->refs = 1;
+    img->name = remote_image_name(url);
+    img->url = g_strdup(url);
+    img->owner = hv;
+    g_hash_table_insert(hv->remote_images, g_strdup(url), img);
+    img->fetch = purple_util_fetch_url_request_len(url, TRUE, "DWPurple/0.1", TRUE,
+                                                   NULL, FALSE, HV_REMOTE_MAX,
+                                                   remote_image_done, img);
+    if(!img->fetch)
+        img->decode_failed = TRUE;
+    return img;
+}
+
 static HPIXMAP image_pixmap(DwpHistView *hv, HvImage *img)
 {
-    if(!img->pixmap && !img->decode_failed)
+    if(!img->pixmap && !img->decode_failed && img->data && img->len)
     {
         img->pixmap = dw_pixmap_new_from_data(hv->render, (const char *)img->data, (int)img->len);
         if(!img->pixmap)
@@ -194,6 +292,11 @@ static void image_open(HvImage *img)
 
     if(!img)
         return;
+    if(img->url)
+    {
+        dwp_open_link(img->url);
+        return;
+    }
     if(!img->path)
     {
         char *dir = g_build_filename(purple_user_dir(), "images", NULL);
@@ -335,6 +438,7 @@ static void line_add_markup(DwpHistView *hv, HvLine *l, const char *html,
     const char *p = html ? html : "";
     const char *link = NULL;
     char *link_owned = NULL;
+    gboolean link_is_image = FALSE;
 
     if(!tag_re)
         tag_re = g_regex_new("<[^>]+>", G_REGEX_CASELESS, 0, NULL);
@@ -356,7 +460,8 @@ static void line_add_markup(DwpHistView *hv, HvLine *l, const char *html,
         g_match_info_free(mi);
         seg = g_strndup(p, a);
         text = dwp_html_to_text(seg, emoji_codes);
-        line_add_text_link(l, text, style, link);
+        if(!link_is_image)
+            line_add_text_link(l, text, style, link);
         g_free(text); g_free(seg);
         tag = g_strndup(p + a, b - a);
 
@@ -380,10 +485,17 @@ static void line_add_markup(DwpHistView *hv, HvLine *l, const char *html,
             g_free(link_owned);
             link_owned = href;
             link = link_owned;
+            link_is_image = remote_image_url(link);
+            if(link_is_image)
+            {
+                HvImage *remote = remote_image_get(hv, link);
+                if(remote)
+                    line_add_image(l, remote, style);
+            }
         }
         else if(g_ascii_strncasecmp(tag, "</a", 3) == 0)
         {
-            g_free(link_owned); link_owned = NULL; link = NULL;
+            g_free(link_owned); link_owned = NULL; link = NULL; link_is_image = FALSE;
         }
         else if(g_ascii_strncasecmp(tag, "<br", 3) == 0 || g_ascii_strncasecmp(tag, "</p", 3) == 0)
             line_add_text(l, "\n", style);
@@ -1068,6 +1180,7 @@ DwpHistView *dwp_histview_new(void)
     hv->lines = g_ptr_array_new_with_free_func(line_free);
     hv->rows = g_array_new(FALSE, FALSE, sizeof(HvRow));
     hv->images = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, image_unref);
+    hv->remote_images = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, image_unref);
     hv->follow = TRUE;
     hv->line_h = 16;
     hv->box = dw_box_new(DW_HORZ, 0);
@@ -1158,6 +1271,14 @@ void dwp_histview_free(DwpHistView *hv)
         return;
     g_ptr_array_free(hv->lines, TRUE);
     g_array_free(hv->rows, TRUE);
+    {
+        GHashTableIter iter;
+        gpointer key, value;
+        g_hash_table_iter_init(&iter, hv->remote_images);
+        while(g_hash_table_iter_next(&iter, &key, &value))
+            ((HvImage *)value)->owner = NULL;
+    }
+    g_hash_table_destroy(hv->remote_images);
     g_hash_table_destroy(hv->images);
     if(hv->back)
         dw_pixmap_destroy(hv->back);
